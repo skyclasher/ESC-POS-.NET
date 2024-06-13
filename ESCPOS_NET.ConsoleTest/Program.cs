@@ -1,9 +1,10 @@
 ﻿using ESCPOS_NET.Emitters;
+using ESCPOS_NET.Printers;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.Logging;
 using System.Threading;
 
 namespace ESCPOS_NET.ConsoleTest
@@ -32,13 +33,15 @@ namespace ESCPOS_NET.ConsoleTest
             Console.WriteLine("1 ) Test Serial Port");
             Console.WriteLine("2 ) Test Network Printer");
             Console.WriteLine("3 ) Test Samba-Shared Printer");
+            Console.WriteLine("4 ) Test USB Printer");
             Console.Write("Choice: ");
             string comPort = "";
             string ip;
             string networkPort;
             string smbPath;
+            string usbPort = string.Empty;
             response = Console.ReadLine();
-            var valid = new List<string> { "1", "2", "3" };
+            var valid = new List<string> { "1", "2", "3", "4" };
             if (!valid.Contains(response))
             {
                 response = "1";
@@ -58,8 +61,8 @@ namespace ESCPOS_NET.ConsoleTest
                         {
                             comPort = "COM5";
                         }
-                    }                    
-                    Console.Write("Baud Rate (enter for default 115200): ");                    
+                    }
+                    Console.Write("Baud Rate (enter for default 115200): ");
                     if (!int.TryParse(Console.ReadLine(), out var baudRate))
                     {
                         baudRate = 115200;
@@ -99,6 +102,43 @@ namespace ESCPOS_NET.ConsoleTest
                 smbPath = Console.ReadLine();
 
                 printer = new SambaPrinter(tempFileBasePath: @"C:\Temp", filePath: smbPath);
+            }
+            else if (choice == 4)
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    var usboptions = DeviceFinder.GetDevices();//gets the usb devices connected to the pc
+                    if (usboptions.Count > 0)
+                    {
+                        int i = 0;
+                        int num = 1;
+                        while (i < usboptions.Count)
+                        {
+
+                            Console.WriteLine($"{i + num}. Name: {usboptions[i].BusName} S/N: {usboptions[i].SerialNum}");
+                            i++;
+                            //serial number and name for printer. Name reported might just be USB Printing Support or something generic
+                            //the property necessary for printing is Device Path this is just for UI
+                        }
+                        Console.Write("Choose Printer (eg. 1): ");
+                        string c = Console.ReadLine();
+                        if (int.TryParse(c, out int chosen) && chosen > 0)
+                        {
+                            usbPort = usboptions[chosen - 1].DevicePath;
+                        }
+                    }
+                    printer = new USBPrinter(usbPort);
+                }
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                {
+                    Console.Write("File / usb path (eg. /dev/usb/lp0): ");
+                    usbPort = Console.ReadLine();
+                    if (string.IsNullOrWhiteSpace(usbPort))
+                    {
+                        comPort = "/dev/usb/lp0";
+                    }
+                    printer = new FilePrinter(filePath: usbPort, false);
+                }
             }
 
             bool monitor = false;
@@ -168,54 +208,54 @@ namespace ESCPOS_NET.ConsoleTest
                 switch (enumChoice)
                 {
                     case Option.SingleLinePrinting:
-                        printer.Write(Tests.SingleLinePrinting(e));
-                        break;
+                    printer.Write(Tests.SingleLinePrinting(e));
+                    break;
                     case Option.MultiLinePrinting:
-                        printer.Write(Tests.MultiLinePrinting(e));
-                        break;
+                    printer.Write(Tests.MultiLinePrinting(e));
+                    break;
                     case Option.LineSpacing:
-                        printer.Write(Tests.LineSpacing(e));
-                        break;
+                    printer.Write(Tests.LineSpacing(e));
+                    break;
                     case Option.BarcodeStyles:
-                        printer.Write(Tests.BarcodeStyles(e));
-                        break;
+                    printer.Write(Tests.BarcodeStyles(e));
+                    break;
                     case Option.BarcodeTypes:
-                        printer.Write(Tests.BarcodeTypes(e));
-                        break;
+                    printer.Write(Tests.BarcodeTypes(e));
+                    break;
                     case Option.TwoDimensionCodes:
-                        printer.Write(Tests.TwoDimensionCodes(e));
-                        break;
+                    printer.Write(Tests.TwoDimensionCodes(e));
+                    break;
                     case Option.TextStyles:
-                        printer.Write(Tests.TextStyles(e));
-                        break;
+                    printer.Write(Tests.TextStyles(e));
+                    break;
                     case Option.FullReceipt:
-                        printer.Write(Tests.Receipt(e));
-                        break;
+                    printer.Write(Tests.Receipt(e));
+                    break;
                     case Option.Images:
-                        printer.Write(Tests.Images(e, false));
-                        break;
+                    printer.Write(Tests.Images(e, false));
+                    break;
                     case Option.LegacyImages:
-                        printer.Write(Tests.Images(e, true));
-                        break;
+                    printer.Write(Tests.Images(e, true));
+                    break;
                     case Option.LargeByteArrays:
-                        try
-                        {
-                            printer.Write(Tests.TestLargeByteArrays(e));
-                        }
-                        catch (Exception e)
-                        {
-                            Console.WriteLine($"Aborting print due to test failure. Exception: {e?.Message}, Stack Trace: {e?.GetBaseException()?.StackTrace}");
-                        }
-                        break;
+                    try
+                    {
+                        printer.Write(Tests.TestLargeByteArrays(e));
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"Aborting print due to test failure. Exception: {e?.Message}, Stack Trace: {e?.GetBaseException()?.StackTrace}");
+                    }
+                    break;
                     case Option.CashDrawerPin2:
-                        printer.Write(Tests.CashDrawerOpenPin2(e));
-                        break;
+                    printer.Write(Tests.CashDrawerOpenPin2(e));
+                    break;
                     case Option.CashDrawerPin5:
-                        printer.Write(Tests.CashDrawerOpenPin5(e));
-                        break;
+                    printer.Write(Tests.CashDrawerOpenPin5(e));
+                    break;
                     default:
-                        Console.WriteLine("Invalid entry.");
-                        break;
+                    Console.WriteLine("Invalid entry.");
+                    break;
                 }
 
                 Setup(monitor);
