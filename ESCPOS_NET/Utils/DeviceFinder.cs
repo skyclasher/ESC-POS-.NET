@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -60,12 +59,29 @@ namespace ESCPOS_NET
         }
         #endregion
         #region Device Methods
-        public static List<DeviceDetails> GetDevices()
+        public enum DeviceType
+        {
+            USB,
+            Bluetooth
+        }
+
+        public static List<DeviceDetails> GetDevices(DeviceType deviceType)
         {
             //https://learn.microsoft.com/en-us/windows-hardware/drivers/install/guid-devinterface-usb-device
-            //USB devices: a5dcbf10-6530-11d2-901f-00c04fb951ed
-            //Bluetooth devices: 00f40965-e89d-4487-9890-87c3abb211f4
-            var devices = GetDevicesbyClassID("a5dcbf10-6530-11d2-901f-00c04fb951ed");
+            string classId;
+            switch (deviceType)
+            {
+                case DeviceType.USB:
+                classId = "a5dcbf10-6530-11d2-901f-00c04fb951ed";
+                break;
+                case DeviceType.Bluetooth:
+                classId = "00f40965-e89d-4487-9890-87c3abb211f4";
+                break;
+                default:
+                throw new ArgumentOutOfRangeException(nameof(deviceType), deviceType, null);
+            }
+
+            var devices = GetDevicesbyClassID(classId);
             return devices;
         }
 
@@ -80,6 +96,7 @@ namespace ESCPOS_NET
                 if (intPtr == INVALID_HANDLE_VALUE)
                 {
                     Win32Exception("Failed to enumerate devices.");
+                    return [];
                 }
 
                 int num = 0;
@@ -96,6 +113,7 @@ namespace ESCPOS_NET
                     if (!SetupDiGetDeviceInterfaceDetail(intPtr, ref DeviceInterfaceData, IntPtr.Zero, 0, ref RequiredSize, IntPtr.Zero) && Marshal.GetLastWin32Error() != 122)
                     {
                         Win32Exception("Failed to get interface details buffer size.");
+                        continue;
                     }
 
                     IntPtr intPtr2 = IntPtr.Zero;
@@ -108,11 +126,15 @@ namespace ESCPOS_NET
                         if (!SetupDiGetDeviceInterfaceDetail(intPtr, ref DeviceInterfaceData, intPtr2, RequiredSize, ref RequiredSize, ref DeviceInfoData))
                         {
                             Win32Exception("Failed to get device interface details.");
+                            continue;
                         }
                         string path = Marshal.PtrToStringUni(new IntPtr(intPtr2.ToInt64() + 4));
 
                         DeviceDetails deviceDetails = GetDeviceDetails(path, intPtr, DeviceInfoData);
-                        devices.Add(deviceDetails);
+                        if (deviceDetails != null)
+                        {
+                            devices.Add(deviceDetails);
+                        }
                     }
                     finally
                     {
@@ -127,6 +149,7 @@ namespace ESCPOS_NET
                 if (Marshal.GetLastWin32Error() != 259)
                 {
                     Win32Exception("Failed to get device interface.");
+                    return [];
                 }
             }
             finally
@@ -145,41 +168,52 @@ namespace ESCPOS_NET
             {
                 DevicePath = devicePath
             };
-            if (!string.IsNullOrWhiteSpace(devicePath) && devicePath.Contains("#"))
-            {
-                var spserial = devicePath.Split('#');
-                result.SerialNum = spserial[spserial.Length - 2];
-                //last in array is guid and last second is the serial number 
-                //serial number might not be the actual serial number for the device it may be system generated
-            }
-            DEFINE_DEVPROPKEY(out DEVPROPKEY key, 0x540b947e, 0x8b40, 0x45bc, 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2, 4);
-            result.BusName = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0];
-            DEFINE_DEVPROPKEY(out key, 0xb725f130, 0x47ef, 0x101a, 0xa5, 0xf1, 0x02, 0x60, 0x8c, 0x9e, 0xeb, 0xac, 10);
-            result.DisplayName = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0];
-            DEFINE_DEVPROPKEY(out key, 0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 2);
-            result.DeviceDescription = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0];
-            DEFINE_DEVPROPKEY(out key, 0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 13);
-            result.Manufacturer = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0];
-            DEFINE_DEVPROPKEY(out key, 0x78c34fc8, 0x104a, 0x4aca, 0x9e, 0xa4, 0x52, 0x4d, 0x52, 0x99, 0x6e, 0x57, 256);
-            string[] multiStringProperty = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key);
-            Regex regex = new Regex("VID_([0-9A-F]{4})&PID_([0-9A-F]{4})", RegexOptions.IgnoreCase);
-            bool flag = false;
-            string[] array = multiStringProperty;
-            foreach (string input in array)
-            {
-                Match match = regex.Match(input);
-                if (match.Success)
-                {
-                    result.VID = ushort.Parse(match.Groups[1].Value, NumberStyles.AllowHexSpecifier);
-                    result.PID = ushort.Parse(match.Groups[2].Value, NumberStyles.AllowHexSpecifier);
-                    flag = true;
-                    break;
-                }
-            }
 
-            if (!flag)
+            try
             {
-                Win32Exception("Failed to find VID and PID for USB device. No hardware ID could be parsed.");
+
+                if (!string.IsNullOrWhiteSpace(devicePath) && devicePath.Contains("#"))
+                {
+                    var spserial = devicePath.Split('#');
+                    result.SerialNum = spserial[spserial.Length - 2];
+                    //last in array is guid and last second is the serial number 
+                    //serial number might not be the actual serial number for the device it may be system generated
+                }
+                DEFINE_DEVPROPKEY(out DEVPROPKEY key, 0x540b947e, 0x8b40, 0x45bc, 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2, 4);
+                result.BusName = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0] ?? string.Empty;
+                DEFINE_DEVPROPKEY(out key, 0xb725f130, 0x47ef, 0x101a, 0xa5, 0xf1, 0x02, 0x60, 0x8c, 0x9e, 0xeb, 0xac, 10);
+                result.DisplayName = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0] ?? string.Empty;
+                DEFINE_DEVPROPKEY(out key, 0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 2);
+                result.DeviceDescription = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0] ?? string.Empty;
+                DEFINE_DEVPROPKEY(out key, 0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 13);
+                result.Manufacturer = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key)[0] ?? string.Empty;
+                DEFINE_DEVPROPKEY(out key, 0x78c34fc8, 0x104a, 0x4aca, 0x9e, 0xa4, 0x52, 0x4d, 0x52, 0x99, 0x6e, 0x57, 256);
+                string[] multiStringProperty = GetPropertyForDevice(deviceInfoSet, deviceInfoData, key);
+                Regex regex = new Regex("VID_([0-9A-F]{4})&PID_([0-9A-F]{4})", RegexOptions.IgnoreCase);
+                bool flag = false;
+                string[] array = multiStringProperty;
+                foreach (string input in array)
+                {
+                    Match match = regex.Match(input);
+                    if (match.Success)
+                    {
+                        result.VID = ushort.Parse(match.Groups[1].Value, NumberStyles.AllowHexSpecifier);
+                        result.PID = ushort.Parse(match.Groups[2].Value, NumberStyles.AllowHexSpecifier);
+                        flag = true;
+                        break;
+                    }
+                }
+
+                if (!flag)
+                {
+                    Win32Exception("Failed to find VID and PID for USB device. No hardware ID could be parsed.");
+                    return null;
+                }
+
+            }
+            catch (Exception)
+            {
+                return result;
             }
 
             return result;
@@ -195,6 +229,7 @@ namespace ESCPOS_NET
                 if (!SetupDiGetDeviceProperty(deviceInfoSet, ref deviceInfoData, ref key, out uint proptype, buffer, buflen, out uint outsize, 0))
                 {
                     Win32Exception("Failed to get property for device");
+                    return [];
                 }
                 byte[] lbuffer = new byte[outsize];
                 Marshal.Copy(buffer, lbuffer, 0, (int)outsize);
@@ -211,7 +246,13 @@ namespace ESCPOS_NET
 
         private static void Win32Exception(string message)
         {
-            throw new Exception(message, new Win32Exception(Marshal.GetLastWin32Error()));
+            int errorCode = Marshal.GetLastWin32Error();
+            string errorMessage = $"Error: {message}, Win32 Error Code: {errorCode}";
+
+            // Log the error message to the console
+            Console.WriteLine(errorMessage);
+
+            //throw new Exception(message, new Win32Exception(Marshal.GetLastWin32Error()));
         }
         #endregion
     }

@@ -107,7 +107,7 @@ namespace ESCPOS_NET.ConsoleTest
             {
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    var usboptions = DeviceFinder.GetDevices();//gets the usb devices connected to the pc
+                    var usboptions = DeviceFinder.GetDevices(DeviceFinder.DeviceType.USB);//gets the usb devices connected to the pc
                     if (usboptions.Count > 0)
                     {
                         int i = 0;
